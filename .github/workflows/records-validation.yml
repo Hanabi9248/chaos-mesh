@@ -1,0 +1,44 @@
+name: Validate records cancellation
+on:
+  push:
+    branches: [codex/validate-records-context]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 1d3b2b7d6b9f76bdcfa3f6f4a395194880ec65b9
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.11'
+      - name: Verify tested source
+        run: test "$(git rev-parse 'HEAD^{tree}')" = 99455f59731b3d61f87bc4c84938bdcc87b5f6a1
+      - name: Confirm regressions fail without context propagation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('controllers/common/records/controller.go')
+          source = path.read_text()
+          for operation in ['Apply', 'Recover']:
+              old = f'r.Impl.{operation}(ctx, index, records, obj)'
+              assert source.count(old) == 1
+              source = source.replace(old, f'r.Impl.{operation}(context.TODO(), index, records, obj)')
+          path.write_text(source)
+          PY
+          set +e
+          go test ./controllers/common/records -run TestReconcilePassesContext -count=1 > /tmp/records-before.txt 2>&1
+          status=$?
+          set -e
+          cat /tmp/records-before.txt
+          test "$status" -ne 0
+          test "$(grep -c 'want .* with reconciliation context' /tmp/records-before.txt)" -eq 2
+          git restore controllers/common/records/controller.go
+      - name: Run controller and implementation tests with race detection
+        run: go test -race ./controllers/common/... ./controllers/chaosimpl/physicalmachinechaos/... ./controllers/chaosimpl/podchaos/... -count=1
+      - name: Vet affected packages
+        run: go vet ./controllers/common/... ./controllers/chaosimpl/physicalmachinechaos/... ./controllers/chaosimpl/podchaos/...
