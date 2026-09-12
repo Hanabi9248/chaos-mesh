@@ -17,6 +17,10 @@ jobs:
           go-version: '1.25.11'
       - name: Verify tested source
         run: test "$(git rev-parse 'HEAD^{tree}')" = 99455f59731b3d61f87bc4c84938bdcc87b5f6a1
+      - name: Install local Kubernetes test binaries
+        run: |
+          assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.21 use -p path 1.35.x)
+          echo "KUBEBUILDER_ASSETS=$assets" >> "$GITHUB_ENV"
       - name: Confirm regressions fail without context propagation
         shell: bash
         run: |
